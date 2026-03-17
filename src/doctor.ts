@@ -325,6 +325,8 @@ export function discoverExtensionToken(): string | null {
   if (platform === 'darwin') {
     bases.push(
       path.join(home, 'Library', 'Application Support', 'Google', 'Chrome'),
+      path.join(home, 'Library', 'Application Support', 'Google', 'Chrome Dev'),
+      path.join(home, 'Library', 'Application Support', 'Google', 'Chrome Beta'),
       path.join(home, 'Library', 'Application Support', 'Google', 'Chrome Canary'),
       path.join(home, 'Library', 'Application Support', 'Chromium'),
       path.join(home, 'Library', 'Application Support', 'Microsoft Edge'),
@@ -332,6 +334,8 @@ export function discoverExtensionToken(): string | null {
   } else if (platform === 'linux') {
     bases.push(
       path.join(home, '.config', 'google-chrome'),
+      path.join(home, '.config', 'google-chrome-unstable'),
+      path.join(home, '.config', 'google-chrome-beta'),
       path.join(home, '.config', 'chromium'),
       path.join(home, '.config', 'microsoft-edge'),
     );
@@ -339,6 +343,8 @@ export function discoverExtensionToken(): string | null {
     const appData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
     bases.push(
       path.join(appData, 'Google', 'Chrome', 'User Data'),
+      path.join(appData, 'Google', 'Chrome Dev', 'User Data'),
+      path.join(appData, 'Google', 'Chrome Beta', 'User Data'),
       path.join(appData, 'Microsoft', 'Edge', 'User Data'),
     );
   }
@@ -451,6 +457,8 @@ export function checkExtensionInstalled(): { installed: boolean; browsers: strin
   if (platform === 'darwin') {
     browserDirs.push(
       { name: 'Chrome', base: path.join(home, 'Library', 'Application Support', 'Google', 'Chrome') },
+      { name: 'Chrome Dev', base: path.join(home, 'Library', 'Application Support', 'Google', 'Chrome Dev') },
+      { name: 'Chrome Beta', base: path.join(home, 'Library', 'Application Support', 'Google', 'Chrome Beta') },
       { name: 'Chrome Canary', base: path.join(home, 'Library', 'Application Support', 'Google', 'Chrome Canary') },
       { name: 'Chromium', base: path.join(home, 'Library', 'Application Support', 'Chromium') },
       { name: 'Edge', base: path.join(home, 'Library', 'Application Support', 'Microsoft Edge') },
@@ -458,6 +466,8 @@ export function checkExtensionInstalled(): { installed: boolean; browsers: strin
   } else if (platform === 'linux') {
     browserDirs.push(
       { name: 'Chrome', base: path.join(home, '.config', 'google-chrome') },
+      { name: 'Chrome Dev', base: path.join(home, '.config', 'google-chrome-unstable') },
+      { name: 'Chrome Beta', base: path.join(home, '.config', 'google-chrome-beta') },
       { name: 'Chromium', base: path.join(home, '.config', 'chromium') },
       { name: 'Edge', base: path.join(home, '.config', 'microsoft-edge') },
     );
@@ -465,6 +475,8 @@ export function checkExtensionInstalled(): { installed: boolean; browsers: strin
     const appData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
     browserDirs.push(
       { name: 'Chrome', base: path.join(appData, 'Google', 'Chrome', 'User Data') },
+      { name: 'Chrome Dev', base: path.join(appData, 'Google', 'Chrome Dev', 'User Data') },
+      { name: 'Chrome Beta', base: path.join(appData, 'Google', 'Chrome Beta', 'User Data') },
       { name: 'Edge', base: path.join(appData, 'Microsoft', 'Edge', 'User Data') },
     );
   }

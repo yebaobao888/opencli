@@ -15,55 +15,63 @@ export const favoritesCommand = cli({
       (function() {
         const results = [];
 
-        // Strategy 1: Find the "Favorites" header and collect its sibling tree items
-        const allHeaders = document.querySelectorAll(
-          '[class*="sidebar"] [role="heading"], [class*="sidebar"] [class*="sectionHeader"], [class*="sidebar"] [class*="header"]'
-        );
+        // Strategy 1: Use Notion's own class 'notion-outliner-bookmarks-header-container'
+        const headerContainer = document.querySelector('.notion-outliner-bookmarks-header-container');
+        if (headerContainer) {
+          // Walk up to the section parent that wraps header + items
+          let section = headerContainer.parentElement;
+          if (section && section.children.length === 1) section = section.parentElement;
 
-        let favSection = null;
-        for (const h of allHeaders) {
-          const text = (h.textContent || '').trim().toLowerCase();
-          if (text === 'favorites' || text === '收藏' || text === '收藏夹') {
-            favSection = h;
-            break;
-          }
-        }
+          if (section) {
+            const treeItems = section.querySelectorAll('[role="treeitem"]');
+            treeItems.forEach((item) => {
+              // Title text is in a div.notranslate sibling of the icon area
+              const titleEl = item.querySelector('div.notranslate:not(.notion-record-icon)');
+              const title = titleEl
+                ? titleEl.textContent.trim()
+                : (item.textContent || '').trim().substring(0, 80);
 
-        if (favSection) {
-          // Walk up to find the section container, then get all tree items
-          let container = favSection.closest('[role="group"], [class*="section"], [class*="favorites"]');
-          if (!container) container = favSection.parentElement;
-          if (container) {
-            const treeItems = container.querySelectorAll('[role="treeitem"], [role="button"], a[href]');
-            treeItems.forEach((item, i) => {
-              const text = (item.textContent || '').trim().substring(0, 120);
-              // Skip the header itself
-              if (text && text.length > 1 && !text.toLowerCase().match(/^(favorites|收藏夹?)$/)) {
-                // Try to extract emoji/icon
-                const iconEl = item.querySelector('[class*="icon"], [class*="emoji"], [role="img"]');
-                const icon = iconEl ? (iconEl.textContent || iconEl.getAttribute('aria-label') || '').trim() : '';
-                results.push({ Index: results.length + 1, Title: text, Icon: icon || '📄' });
+              // Icon/emoji is in the notion-record-icon element
+              const iconEl = item.querySelector('.notion-record-icon');
+              const icon = iconEl ? iconEl.textContent.trim().substring(0, 4) : '';
+
+              if (title && title.length > 0) {
+                results.push({ Index: results.length + 1, Title: title, Icon: icon || '📄' });
               }
             });
           }
         }
 
-        // Strategy 2: Try data attributes or direct class-based selectors
+        // Strategy 2: Fallback — find "Favorites" text node and walk DOM
         if (results.length === 0) {
-          const favContainers = document.querySelectorAll(
-            '[class*="favorite"], [data-testid*="favorite"], [class*="Favorite"]'
-          );
-          for (const container of favContainers) {
-            const items = container.querySelectorAll('[role="treeitem"], [role="button"], a');
-            items.forEach((item, i) => {
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+          let node;
+          let favEl = null;
+          while (node = walker.nextNode()) {
+            const text = node.textContent.trim();
+            if (text === 'Favorites' || text === '收藏' || text === '收藏夹') {
+              favEl = node.parentElement;
+              break;
+            }
+          }
+
+          if (favEl) {
+            let section = favEl;
+            for (let i = 0; i < 6; i++) {
+              const p = section.parentElement;
+              if (!p || p === document.body) break;
+              const treeItems = p.querySelectorAll(':scope > [role="treeitem"]');
+              if (treeItems.length > 0) { section = p; break; }
+              section = p;
+            }
+
+            const treeItems = section.querySelectorAll('[role="treeitem"]');
+            treeItems.forEach((item) => {
               const text = (item.textContent || '').trim().substring(0, 120);
-              if (text && text.length > 1) {
-                const iconEl = item.querySelector('[class*="icon"], [class*="emoji"], [role="img"]');
-                const icon = iconEl ? (iconEl.textContent || iconEl.getAttribute('aria-label') || '').trim() : '';
-                results.push({ Index: results.length + 1, Title: text, Icon: icon || '📄' });
+              if (text && text.length > 1 && !text.match(/^(Favorites|收藏夹?)$/)) {
+                results.push({ Index: results.length + 1, Title: text, Icon: '📄' });
               }
             });
-            if (results.length > 0) break;
           }
         }
 

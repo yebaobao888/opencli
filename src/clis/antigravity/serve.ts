@@ -119,9 +119,8 @@ async function getConversationText(page: IPage): Promise<string> {
 /**
  * Get the text of the last assistant reply by navigating to the message container
  * and extracting the last non-empty message block.
- * Based on DOM structure: messages are siblings inside a container with empty className.
  */
-async function getLastAssistantReply(page: IPage): Promise<string> {
+async function getLastAssistantReply(page: IPage, userText?: string): Promise<string> {
   const text = await page.evaluate(`
     (() => {
       const conv = document.getElementById('conversation')?.children[0];
@@ -148,55 +147,77 @@ async function getLastAssistantReply(page: IPage): Promise<string> {
       
       // The last element is the last assistant reply
       const last = msgs[msgs.length - 1];
-      
-      // Strip leading "Thought for Xs" thinking block if present
-      let text = last.innerText || '';
-      text = text.replace(/^Thought for [^\\n]*\\n+/i, '').trim();
-      
-      // Strip "Copy" button text at the end (it's often appended by Antigravity UI)
-      text = text.replace(/\\s*Copy\\s*$/, '').trim();
-      
-      return text;
+      return last.innerText || '';
     })()
   `);
-  return String(text ?? '');
+  let reply = String(text ?? '').trim();
+
+  // Strip echoed user message from the top (Antigravity sometimes includes it)
+  if (userText && reply.startsWith(userText)) {
+    reply = reply.slice(userText.length).trim();
+  }
+
+  // Strip thinking block: "Thought for Xs\n..." at the start
+  reply = reply.replace(/^Thought for[^\n]*\n+/i, '').trim();
+
+  // Strip "Copy" button text at the end
+  reply = reply.replace(/\s*\bCopy\b\s*$/m, '').trim();
+
+  // De-duplicate trailing repeated content (e.g., "OK\n\nOK" → "OK")
+  const half = Math.floor(reply.length / 2);
+  const firstHalf = reply.slice(0, half).trim();
+  const secondHalf = reply.slice(half).trim();
+  if (firstHalf && firstHalf === secondHalf) {
+    reply = firstHalf;
+  }
+
+  return reply;
 }
 
 async function sendMessage(page: IPage, message: string, bridge?: CDPBridge): Promise<void> {
-  await page.evaluate(`
-    (async () => {
+  if (!bridge) {
+    // Fallback: use JS-based approach
+    await page.evaluate(`
+      (() => {
+        const container = document.getElementById('antigravity.agentSidePanelInputBox');
+        const editor = container?.querySelector('[data-lexical-editor="true"]');
+        if (!editor) throw new Error('Could not find input box');
+        editor.focus();
+        document.execCommand('insertText', false, ${JSON.stringify(message)});
+      })()
+    `);
+    await sleep(500);
+    await page.pressKey('Enter');
+    return;
+  }
+
+  // Get the bounding box of the Lexical editor for a physical mouse click
+  const rect = await page.evaluate(`
+    (() => {
       const container = document.getElementById('antigravity.agentSidePanelInputBox');
       if (!container) throw new Error('Could not find antigravity.agentSidePanelInputBox');
       const editor = container.querySelector('[data-lexical-editor="true"]');
       if (!editor) throw new Error('Could not find Antigravity input box');
-      
-      editor.focus();
-      document.execCommand('insertText', false, ${JSON.stringify(message)});
+      const r = editor.getBoundingClientRect();
+      return JSON.stringify({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
     })()
   `);
-  await sleep(500);
+  const { x, y } = JSON.parse(String(rect));
 
-  // Use CDP-level key event (native) instead of JS KeyboardEvent (synthetic).
-  // Lexical/React ignores synthetic KeyboardEvents but responds to native ones.
-  if (bridge) {
-    await bridge.send('Input.dispatchKeyEvent', {
-      type: 'keyDown',
-      key: 'Enter',
-      code: 'Enter',
-      windowsVirtualKeyCode: 13,
-      nativeVirtualKeyCode: 13,
-    });
-    await sleep(50);
-    await bridge.send('Input.dispatchKeyEvent', {
-      type: 'keyUp',
-      key: 'Enter',
-      code: 'Enter',
-      windowsVirtualKeyCode: 13,
-      nativeVirtualKeyCode: 13,
-    });
-  } else {
-    await page.pressKey('Enter');
-  }
+  // Physical mouse click to give the element real browser focus
+  await bridge.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+  await sleep(50);
+  await bridge.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+  await sleep(200);
+
+  // Inject text at the CDP level (no deprecated execCommand)
+  await bridge.send('Input.insertText', { text: message });
+  await sleep(300);
+
+  // Send Enter via native CDP key event
+  await bridge.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+  await sleep(50);
+  await bridge.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
 }
 
 async function waitForReply(
@@ -308,7 +329,7 @@ async function handleMessages(
   await waitForReply(page, beforeText);
 
   // Extract the actual reply text precisely from the DOM
-  const replyText = await getLastAssistantReply(page);
+  const replyText = await getLastAssistantReply(page, userText);
   console.error(`[serve] Got reply: "${replyText.slice(0, 80)}${replyText.length > 80 ? '...' : ''}"`);
 
   return {

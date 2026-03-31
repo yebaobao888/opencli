@@ -28,16 +28,12 @@ description: "AI-driven CLI adapter generation for any website. Replaces rule-ba
 | **URL** | ✅ | `https://www.zhihu.com/hot` |
 | **Goal** | ✅ | "获取热榜列表，包含标题、热度、链接" |
 | **Site** | ❌ | `zhihu`（不提供则从 URL 自动推断） |
-| **Type** | ❌ | `yaml` 或 `ts`（不指定则 AI 根据复杂度自动判断） |
 
 ## 输出
 
-与 `opencli generate` 完全一致：
-- **用户全局目录**（推荐）：生成到 `~/.opencli/clis/<site>/` 下，全局安装的 opencli 自动发现
-- **源码目录**（开发模式）：如在 opencli 源码仓库内开发，可放到 `src/clis/<site>/`
-- 文件遵循 opencli 的命令注册规范，保存即自动发现
-
-> **判断规则**：如果当前工作目录是 opencli 源码仓库（存在 `src/clis/`），则放 `src/clis/<site>/`；否则放 `~/.opencli/clis/<site>/`。
+- 生成 **YAML 格式** adapter 到 `~/.opencli/clis/<site>/<name>.yaml`
+- 全局安装的 `opencli` 自动发现，无需编译
+- ⚠️ **不要生成 TS 文件到用户目录** — 全局 `opencli` 因 shim 链路问题无法加载 TS adapter
 
 ---
 
@@ -110,12 +106,16 @@ fetch 全失败但页面自己能请求？        → Tier 4: intercept (TS, ins
 
 根据 Step 3 判定的策略和分析结果，生成 adapter。
 
-**选择 YAML vs TS 的决策**：
-- Tier 1 (public) / Tier 2 (cookie) → **YAML**（除非响应需要复杂处理）
-- Tier 3 (header) / Tier 4 (intercept) / Tier 5 (ui) → **TS**
-- 嵌入 JS 超过 10 行 → **TS**
+**⚠️ 关键规则：统一生成 YAML 格式**
 
-#### YAML 模板（Tier 1/2）
+本 skill 生成的 adapter **一律使用 YAML 格式**，输出到 `~/.opencli/clis/<site>/` 目录：
+- 全局安装的 `opencli` 只能加载 YAML（TS 文件因 shim 链路问题在用户目录下无法运行）
+- YAML 的 `evaluate` 步骤可以内嵌任意复杂的 JS（包括 fetch + header、多步请求、DOM 解析），足以覆盖所有 Tier 1~5 场景
+- 只有在 opencli 源码仓库内开发（`src/clis/` 目录）时才考虑 TS 格式
+
+**输出目录**：`~/.opencli/clis/<site>/<name>.yaml`
+
+#### YAML 模板
 
 ```yaml
 site: <site>
@@ -154,45 +154,53 @@ pipeline:
 columns: [rank, <field1>, <field2>]
 ```
 
-#### TS 模板（Tier 3/4/5）
+#### YAML 处理复杂场景示例（Tier 3 header / Tier 5 DOM 解析）
 
-```typescript
-import { cli, Strategy } from '../../registry.js';
+evaluate 步骤可内嵌任意 JS，能覆盖所有复杂场景：
 
-cli({
-  site: '<site>',
-  name: '<name>',
-  description: '<goal 的简要描述>',
-  domain: '<domain>',
-  strategy: Strategy.<STRATEGY>,
-  browser: true,
-  args: [
-    { name: 'limit', type: 'int', default: 20, help: 'Number of items to return' },
-  ],
-  columns: ['rank', '<field1>', '<field2>'],
-  func: async (page, kwargs) => {
-    // ... AI 根据实际情况生成
-  },
-});
+```yaml
+# Tier 3 (Header): 需要 CSRF/Bearer
+pipeline:
+  - navigate: <target_url>
+  - evaluate: |
+      (async () => {
+        const ct0 = document.cookie.match(/ct0=([^;]+)/)?.[1];
+        const res = await fetch('<api_url>', {
+          headers: { 'Authorization': 'Bearer <token>', 'X-Csrf-Token': ct0 },
+          credentials: 'include'
+        });
+        const d = await res.json();
+        return (d.<data_path> || []).map(item => ({ ... }));
+      })()
+
+# Tier 5 (DOM): 无 API，解析页面
+pipeline:
+  - navigate: <target_url>
+  - wait: 3
+  - evaluate: |
+      (() => {
+        const cards = document.querySelectorAll('<selector>');
+        return [...cards].map((card, i) => ({
+          rank: i + 1,
+          title: card.querySelector('<title_sel>')?.textContent?.trim(),
+          ...
+        }));
+      })()
 ```
 
 **生成规则**：
 1. 主参数用 positional arg（如 `query`、`id`）
 2. 命令名用 kebab-case
-3. 参考同 site 已有的 adapter 风格（先 `ls src/clis/<site>/`）
-4. 如果 site 有 `utils.ts`，复用其 helper 函数
+3. 文件放到 `~/.opencli/clis/<site>/<name>.yaml`
 
-### Step 5: 构建验证
+### Step 5: 验证
 
 ```bash
-# 1. 编译检查
-npx tsc --noEmit
+# 1. 确认命令已注册
+opencli list | grep <site>
 
-# 2. 确认命令已注册
-npx tsx src/main.ts list | grep <site>
-
-# 3. 实际运行
-npx tsx src/main.ts <site> <name> --limit 3
+# 2. 实际运行
+opencli <site> <name> --limit 3
 ```
 
 验证通过后向用户报告结果。

@@ -33,8 +33,11 @@ description: "AI-driven CLI adapter generation for any website. Replaces rule-ba
 ## 输出
 
 与 `opencli generate` 完全一致：
-- 在 `src/clis/<site>/` 目录下生成 `.yaml` 或 `.ts` adapter 文件
+- **用户全局目录**（推荐）：生成到 `~/.opencli/clis/<site>/` 下，全局安装的 opencli 自动发现
+- **源码目录**（开发模式）：如在 opencli 源码仓库内开发，可放到 `src/clis/<site>/`
 - 文件遵循 opencli 的命令注册规范，保存即自动发现
+
+> **判断规则**：如果当前工作目录是 opencli 源码仓库（存在 `src/clis/`），则放 `src/clis/<site>/`；否则放 `~/.opencli/clis/<site>/`。
 
 ---
 
